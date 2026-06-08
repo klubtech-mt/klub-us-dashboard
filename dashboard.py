@@ -1,9 +1,24 @@
 import sqlite3
 import os
-from flask import Flask, render_template_string, request
+import sys
+import traceback
 
-app = Flask(__name__)
-DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "leads.db"))
+try:
+    from flask import Flask, render_template_string, request
+except Exception as _e:
+    with open("/tmp/startup_error.log", "a") as _f:
+        _f.write("=== IMPORT ERROR ===\n")
+        traceback.print_exc(file=_f)
+    raise
+
+try:
+    app = Flask(__name__)
+    DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "leads.db"))
+except Exception as _e:
+    with open("/tmp/startup_error.log", "a") as _f:
+        _f.write("=== APP INIT ERROR ===\n")
+        traceback.print_exc(file=_f)
+    raise
 
 HTML = """
 <!DOCTYPE html>
@@ -303,6 +318,12 @@ def index():
     )
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    print(f"Dashboard 啟動中：http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    try:
+        port = int(os.environ.get("PORT", 8080))
+        print(f"Dashboard 啟動中：http://localhost:{port}")
+        app.run(host="0.0.0.0", port=port, debug=False)
+    except Exception as _e:
+        with open("/tmp/startup_error.log", "a") as _f:
+            _f.write("=== RUNTIME ERROR ===\n")
+            traceback.print_exc(file=_f)
+        raise
