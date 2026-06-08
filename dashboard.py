@@ -212,18 +212,30 @@ function sortTable(th) {
 
 ALLOWED_SORT = {"company","industry","city","state","contact","title","email","phone","tier","reviews"}
 
+DB_EXISTS = os.path.exists(DB_PATH)
+
 def query(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
-    return rows
+    if not DB_EXISTS:
+        return []
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
 
 def query_one(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
-    val = conn.execute(sql, params).fetchone()[0]
-    conn.close()
-    return val
+    if not DB_EXISTS:
+        return 0
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        val = conn.execute(sql, params).fetchone()
+        conn.close()
+        return val[0] if val else 0
+    except Exception:
+        return 0
 
 @app.route("/")
 def index():
