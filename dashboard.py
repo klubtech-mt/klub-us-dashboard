@@ -227,10 +227,8 @@ function sortTable(th) {
 
 ALLOWED_SORT = {"company","industry","city","state","contact","title","email","phone","tier","reviews"}
 
-DB_EXISTS = os.path.exists(DB_PATH)
-
 def query(sql, params=()):
-    if not DB_EXISTS:
+    if not os.path.exists(DB_PATH):
         return []
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -242,7 +240,7 @@ def query(sql, params=()):
         return []
 
 def query_one(sql, params=()):
-    if not DB_EXISTS:
+    if not os.path.exists(DB_PATH):
         return 0
     try:
         conn = sqlite3.connect(DB_PATH)
