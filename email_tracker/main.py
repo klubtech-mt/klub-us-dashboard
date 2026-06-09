@@ -13,7 +13,7 @@ from flask import Flask, request, Response, jsonify
 app = Flask(__name__)
 
 DB_PATH     = os.environ.get('DB_PATH', '/app/output/leads.db')
-SENDER_PATH = os.environ.get('SENDER_PATH', '/app/us_email_sender.py')
+SENDER_PATH = '/app/us_email_sender.py'
 
 PIXEL = (
     b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff'
