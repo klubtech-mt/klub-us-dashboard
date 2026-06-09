@@ -272,7 +272,7 @@ def apollo_org(company_name, domain=""):
 # ══════════════════════════════════════════════
 def apollo_people_search(company_name: str, domain: str = "") -> list[dict]:
     if not APOLLO_API_KEY: return []
-    url = "https://api.apollo.io/v1/mixed_people/search"
+    url = "https://api.apollo.io/v1/mixed_people/api_search"
     headers = {"Content-Type": "application/json", "X-Api-Key": APOLLO_API_KEY}
     payload = {
         "q_organization_name": company_name,
