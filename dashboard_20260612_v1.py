@@ -60,7 +60,7 @@ header p  { font-size: 0.8rem; color: #aaa; }
 /* 表格 */
 .table-wrap { background: white; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,.07); overflow-x: auto; }
 .table-meta { padding: 12px 20px; font-size: 12px; color: #888; border-bottom: 1px solid #f0f0f0; }
-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table { width: max-content; min-width: 100%; border-collapse: collapse; table-layout: fixed; }
 th { background: #f7f8fa; padding: 8px 10px; text-align: left; font-size: 12px; font-weight: 700;
      color: #555; cursor: pointer; user-select: none; white-space: nowrap; border-bottom: 2px solid #e8e8e8; }
 th:hover { background: #eef0f4; }
