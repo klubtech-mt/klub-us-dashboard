@@ -1,12 +1,10 @@
 import sqlite3
 import os
 import sys
-import csv
-import io
 import traceback
 
 try:
-    from flask import Flask, render_template_string, request, Response
+    from flask import Flask, render_template_string, request
 except Exception as _e:
     with open("/tmp/startup_error.log", "a") as _f:
         _f.write("=== IMPORT ERROR ===\n")
@@ -142,13 +140,8 @@ a.link:hover { text-decoration: underline; }
       </select>
     </div>
     <div class="filter-group">
-      <label>州</label>
-      <select name="state">
-        <option value="">全部州</option>
-        {% for s in states %}
-        <option value="{{ s }}" {% if filters.state == s %}selected{% endif %}>{{ s }}</option>
-        {% endfor %}
-      </select>
+      <label>公司名稱</label>
+      <input type="text" name="q" placeholder="搜尋公司..." value="{{ filters.q }}">
     </div>
     <div class="filter-group">
       <label>Email</label>
@@ -161,7 +154,6 @@ a.link:hover { text-decoration: underline; }
     <div style="display:flex;gap:8px;align-items:flex-end;">
       <button class="btn btn-primary" type="submit">套用篩選</button>
       <a href="/" class="btn btn-reset">重置</a>
-      <button class="btn btn-reset" type="submit" formaction="/export.csv" formtarget="_blank">下載 CSV</button>
     </div>
   </form>
 
@@ -258,22 +250,6 @@ def query_one(sql, params=()):
     except Exception:
         return 0
 
-def build_where(industry, city, state, tier, has_email):
-    where, params = [], []
-    if industry:
-        where.append("industry = ?"); params.append(industry)
-    if city:
-        where.append("city = ?"); params.append(city)
-    if tier:
-        where.append("tier = ?"); params.append(tier)
-    if state:
-        where.append("state = ?"); params.append(state)
-    if has_email == "1":
-        where.append("email IS NOT NULL AND email != ''")
-    elif has_email == "0":
-        where.append("(email IS NULL OR email = '')")
-    return where, params
-
 @app.route("/")
 def index():
     from datetime import datetime
@@ -281,8 +257,8 @@ def index():
     # 篩選參數
     industry  = request.args.get("industry", "")
     city      = request.args.get("city", "")
-    state     = request.args.get("state", "")
     tier      = request.args.get("tier", "")
+    q         = request.args.get("q", "")
     has_email = request.args.get("has_email", "")
     sort      = request.args.get("sort", "company")
     order     = request.args.get("order", "asc")
@@ -303,10 +279,21 @@ def index():
     # 下拉選單選項
     industries = [r[0] for r in query("SELECT DISTINCT industry FROM leads WHERE industry IS NOT NULL ORDER BY industry")]
     cities     = [r[0] for r in query("SELECT DISTINCT city FROM leads WHERE city IS NOT NULL ORDER BY city")]
-    states     = [r[0] for r in query("SELECT DISTINCT state FROM leads WHERE state IS NOT NULL ORDER BY state")]
 
     # 查詢條件
-    where, params = build_where(industry, city, state, tier, has_email)
+    where, params = [], []
+    if industry:
+        where.append("industry = ?"); params.append(industry)
+    if city:
+        where.append("city = ?"); params.append(city)
+    if tier:
+        where.append("tier = ?"); params.append(tier)
+    if q:
+        where.append("company LIKE ?"); params.append(f"%{q}%")
+    if has_email == "1":
+        where.append("email IS NOT NULL AND email != ''")
+    elif has_email == "0":
+        where.append("(email IS NULL OR email = '')")
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     sql = f"""SELECT company, industry, city, state, contact, title, email,
@@ -321,41 +308,12 @@ def index():
         total_all=total_all, with_email=with_email, with_contact=with_contact,
         vip_count=vip_count, general_count=general_count,
         city_count=city_count, industry_count=industry_count,
-        industries=industries, cities=cities, states=states,
+        industries=industries, cities=cities,
         rows=rows, result_count=result_count,
-        filters={"industry": industry, "city": city, "state": state, "tier": tier, "has_email": has_email},
+        filters={"industry": industry, "city": city, "tier": tier, "q": q, "has_email": has_email},
         sort=sort, order=order,
         now=datetime.now().strftime("%Y-%m-%d %H:%M")
     )
-
-@app.route("/export.csv")
-def export_csv():
-    industry  = request.args.get("industry", "")
-    city      = request.args.get("city", "")
-    state     = request.args.get("state", "")
-    tier      = request.args.get("tier", "")
-    has_email = request.args.get("has_email", "")
-
-    where, params = build_where(industry, city, state, tier, has_email)
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-    sql = f"""SELECT company, industry, city, state, contact, title, email,
-                     phone, website, linkedin, tier, reviews
-              FROM leads {where_sql}
-              ORDER BY company ASC"""
-    rows = query(sql, params)
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["company","industry","city","state","contact","title",
-                      "email","phone","website","linkedin","tier","reviews"])
-    for r in rows:
-        writer.writerow([r["company"], r["industry"], r["city"], r["state"],
-                          r["contact"], r["title"], r["email"], r["phone"],
-                          r["website"], r["linkedin"], r["tier"], r["reviews"]])
-
-    csv_data = "﻿" + output.getvalue()
-    return Response(csv_data, mimetype="text/csv",
-                     headers={"Content-Disposition": "attachment; filename=leads_export.csv"})
 
 if __name__ == "__main__":
     try:
