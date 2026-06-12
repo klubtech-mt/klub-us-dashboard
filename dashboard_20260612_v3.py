@@ -104,7 +104,7 @@ a.link:hover { text-decoration: underline; }
 <div class="container">
   <!-- 統計卡片 -->
   <div class="stats">
-    <div class="card"><div class="num" style="color:#4f8ef7;">{{ total_all }}</div><div class="label">總筆數</div></div>
+    <div class="card"><div class="num">{{ total_all }}</div><div class="label">總筆數</div></div>
     <div class="card"><div class="num">{{ with_email }}</div><div class="label">有 Email</div></div>
     <div class="card"><div class="num">{{ with_contact }}</div><div class="label">有聯絡人</div></div>
     <div class="card"><div class="num" style="color:#856404;">{{ vip_count }}</div><div class="label">VIP</div></div>
@@ -312,7 +312,7 @@ def index():
     sql = f"""SELECT company, industry, city, state, contact, title, email,
                      phone, website, linkedin, tier, reviews
               FROM leads {where_sql}
-              ORDER BY (CASE WHEN email IS NOT NULL AND email != '' THEN 0 ELSE 1 END), {sort} {order}
+              ORDER BY {sort} {order}
               LIMIT 500"""
     rows = query(sql, params)
     result_count = query_one(f"SELECT COUNT(*) FROM leads {where_sql}", params)
@@ -341,7 +341,7 @@ def export_csv():
     sql = f"""SELECT company, industry, city, state, contact, title, email,
                      phone, website, linkedin, tier, reviews
               FROM leads {where_sql}
-              ORDER BY (CASE WHEN email IS NOT NULL AND email != '' THEN 0 ELSE 1 END), company ASC"""
+              ORDER BY company ASC"""
     rows = query(sql, params)
 
     output = io.StringIO()
