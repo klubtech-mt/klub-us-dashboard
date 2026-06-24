@@ -98,7 +98,13 @@ a.link:hover { text-decoration: underline; }
 <body>
 <header>
   <div><h1>US Leads Dashboard</h1><p>資料庫：leads.db &nbsp;|&nbsp; {{ now }}</p></div>
-  <div style="color:#aaa;font-size:12px;">共 {{ total_all }} 筆資料</div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="https://frastracker.zeabur.app/sending" target="_blank"
+       style="background:#27ae60;color:#fff;padding:7px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap;">
+      📬 發信狀況
+    </a>
+    <span style="color:#aaa;font-size:12px;">共 {{ total_all }} 筆資料</span>
+  </div>
 </header>
 
 <div class="container">
