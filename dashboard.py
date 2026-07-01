@@ -363,6 +363,19 @@ def export_csv():
     return Response(csv_data, mimetype="text/csv",
                      headers={"Content-Disposition": "attachment; filename=leads_export.csv"})
 
+@app.route("/upload-db", methods=["POST"])
+def upload_db():
+    if request.form.get("password","") != os.environ.get("PASSWORD",""):
+        return "Forbidden", 403
+    f = request.files.get("db")
+    if not f:
+        return "No file", 400
+    import shutil, tempfile
+    tmp = tempfile.mktemp(suffix=".db")
+    f.save(tmp)
+    shutil.move(tmp, DB_PATH)
+    return "OK", 200
+
 if __name__ == "__main__":
     try:
         port = int(os.environ.get("PORT", 8080))
