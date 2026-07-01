@@ -1,32 +1,12 @@
-"""
-dashboard.py  ──  KLUB × Frastea US Leads Dashboard
-Zeabur start command: gunicorn main:app (via Procfile)
-
-Changelog:
-  v1 (2026-06-12): 初始版本，Flask server-side rendering，含篩選（產業/城市/Tier/有無Email）
-  v2 (2026-06-12): 修正 table CSS（width: max-content → 100%）
-  v3 (2026-06-12): 新增 CSV 匯出（/export.csv）；篩選器加入「州」；重構 build_where()
-  v4 (2026-06-12): 加入「發信狀況」連結（frastracker.zeabur.app）；有 email 的資料優先排序
-  v5 (2026-06-30): 補充修改履歷
-  v6 (2026-06-30): 新增 /upload-db 端點，可上傳 leads.db 至 persistent volume
-  v7 (2026-06-30): 合併雲端資料；以舊有 enriched 資料為基底，加入新增 2057 筆（共 6436 筆）
-  v8 (2026-06-30): 部署含聯絡人/職稱/Email/電話/網站/LinkedIn 欄位的完整資料庫
-  v9 (2026-06-30): 匯入 Apify Google Places CSV 1070 筆（新增 704、補欄 88），共 7140 筆
-  v10 (2026-06-30): header 加入「爬取進度」按鈕，連到 klub-lead-scheduler
-  v11 (2026-07-01): 下載改為 Excel xlsx，欄位全中文化，標題藍底白字，自動最適欄寬，凍結首列
-"""
 import sqlite3
 import os
 import sys
 import csv
 import io
 import traceback
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
 
 try:
-    from flask import Flask, render_template_string, request, Response, jsonify
+    from flask import Flask, render_template_string, request, Response
 except Exception as _e:
     with open("/tmp/startup_error.log", "a") as _f:
         _f.write("=== IMPORT ERROR ===\n")
@@ -119,15 +99,11 @@ a.link:hover { text-decoration: underline; }
 <header>
   <div><h1>US Leads Dashboard</h1><p>資料庫：leads.db &nbsp;|&nbsp; {{ now }}</p></div>
   <div style="display:flex;align-items:center;gap:16px;">
-    <a href="https://klub-lead-scheduler.zeabur.app/" target="_blank"
-       style="background:#1F3864;color:#fff;padding:7px 18px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25);">
-      📊 爬取進度
-    </a>
     <a href="https://frastracker.zeabur.app/sending" target="_blank"
        style="background:#27ae60;color:#fff;padding:7px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap;">
       📬 發信狀況
     </a>
-    <span style="color:#aaa;font-size:12px;">共 {{ total_all }} 筆資料</span><!-- deploy-v10 -->
+    <span style="color:#aaa;font-size:12px;">共 {{ total_all }} 筆資料</span>
   </div>
 </header>
 
@@ -191,7 +167,7 @@ a.link:hover { text-decoration: underline; }
     <div style="display:flex;gap:8px;align-items:flex-end;">
       <button class="btn btn-primary" type="submit">套用篩選</button>
       <a href="/" class="btn btn-reset">重置</a>
-      <button class="btn btn-reset" type="submit" formaction="/export.csv" formtarget="_blank">⬇ 下載 xlsx</button>
+      <button class="btn btn-reset" type="submit" formaction="/export.csv" formtarget="_blank">下載 CSV</button>
     </div>
   </form>
 
@@ -368,76 +344,24 @@ def export_csv():
 
     where, params = build_where(industry, city, state, tier, has_email)
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-    sql = f"""SELECT company, industry,
-                     (COALESCE(city,'') || CASE WHEN city!='' AND state!='' THEN ', ' ELSE '' END || COALESCE(state,'')) AS address,
-                     contact, title, email, phone, website, linkedin, tier, reviews
+    sql = f"""SELECT company, industry, city, state, contact, title, email,
+                     phone, website, linkedin, tier, reviews
               FROM leads {where_sql}
               ORDER BY (CASE WHEN email IS NOT NULL AND email != '' THEN 0 ELSE 1 END), company ASC"""
     rows = query(sql, params)
 
-    ZH = ["公司名稱","產業","地址","聯絡人","職稱","電子郵件","電話","網站","LinkedIn","類型","評論數"]
-    EN = ["company","industry","address","contact","title","email","phone","website","linkedin","tier","reviews"]
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Leads"
-    hfill  = PatternFill("solid", fgColor="1F3864")
-    hfont  = Font(bold=True, color="FFFFFF", name="Arial", size=11)
-    halign = Alignment(horizontal="center", vertical="center")
-    bfont  = Font(name="Arial", size=10)
-    balign = Alignment(vertical="center")
-
-    ws.append(ZH)
-    for cell in ws[1]:
-        cell.fill = hfill; cell.font = hfont; cell.alignment = halign
-    ws.row_dimensions[1].height = 22
-
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["company","industry","city","state","contact","title",
+                      "email","phone","website","linkedin","tier","reviews"])
     for r in rows:
-        ws.append([r.get(k) or "" for k in EN])
-        for cell in ws[ws.max_row]:
-            cell.font = bfont; cell.alignment = balign
+        writer.writerow([r["company"], r["industry"], r["city"], r["state"],
+                          r["contact"], r["title"], r["email"], r["phone"],
+                          r["website"], r["linkedin"], r["tier"], r["reviews"]])
 
-    def _w(v):
-        s = str(v or "")
-        return sum(2 if ord(c) > 0x2E7F else 1 for c in s)
-    for ci, col in enumerate(ws.columns, 1):
-        ws.column_dimensions[get_column_letter(ci)].width = min(max(_w(c.value) for c in col) + 3, 52)
-
-    ws.freeze_panes = "A2"
-    buf = io.BytesIO()
-    wb.save(buf); buf.seek(0)
-    from datetime import datetime
-    fname = f"leads_export_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
-    return Response(buf.getvalue(),
-                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f"attachment; filename={fname}"})
-
-@app.route("/debug")
-def debug():
-    import glob
-    db_exists = os.path.exists(DB_PATH)
-    count = query_one("SELECT COUNT(*) FROM leads") if db_exists else -1
-    files = glob.glob("/app/*.db") + glob.glob("/app/output/*.db")
-    return jsonify({
-        "DB_PATH": DB_PATH,
-        "db_exists": db_exists,
-        "count": count,
-        "db_files": files,
-        "version": "v10"
-    })
-
-@app.route("/upload-db", methods=["POST"])
-def upload_db():
-    PASSWORD = os.environ.get("PASSWORD", "")
-    if request.form.get("password") != PASSWORD:
-        return jsonify({"error": "unauthorized"}), 403
-    if "file" not in request.files:
-        return jsonify({"error": "no file"}), 400
-    f = request.files["file"]
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    f.save(DB_PATH)
-    size = os.path.getsize(DB_PATH)
-    return jsonify({"ok": True, "path": DB_PATH, "size": size})
+    csv_data = "﻿" + output.getvalue()
+    return Response(csv_data, mimetype="text/csv",
+                     headers={"Content-Disposition": "attachment; filename=leads_export.csv"})
 
 if __name__ == "__main__":
     try:
