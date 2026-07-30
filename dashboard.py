@@ -1,9 +1,52 @@
+"""
+dashboard.py — KLUB US Leads Dashboard
+
+Changelog:
+  v1  (2026-06-01): 初始版本，Flask dashboard
+  v2  (2026-06-01): 新增 VIP/GENERAL 篩選
+  v3  (2026-06-01): 新增 email 篩選、CSV 匯出
+  v4  (2026-06-01): 新增統計卡片
+  v5  (2026-06-01): 新增 reviews 欄位
+  v6  (2026-06-01): 新增排序功能
+  v7  (2026-06-01): 新增 /upload-db 端點
+  v8  (2026-07-01): VIP Apollo+Hunter enrichment 完成，7140 筆
+  v9  (2026-07-01): GENERAL Apollo enrichment 完成，新增 735 網站
+  v10 (2026-07-01): 新增 address 欄位
+  v11 (2026-07-01): Apify email scraper 批次抓取中（contact/email 持續增加）
+  v12 (2026-07-01): scraper batch 1~5 完成，新增 email 250 / contact 192
+  v13 (2026-07-01): 產業別修正——大小寫統一（164筆）、刪除不相關業者（540筆），剩 6,600 筆
+  v14 (2026-07-01): header 新增「排程管理」按鈕，連結至 klub-lead-scheduler
+  v15 (2026-07-01): merge_frastracker_v2.py v4 — 同步改為自動推送三個服務
+  v19 (2026-07-06): 城市數及城市下拉選單過濾 nan 值，與州欄位處理一致
+  v18 (2026-07-06): 產業別下拉選單固定為 8 種標準類別，過濾備用名單帶入的雜項產業
+  v17 (2026-07-03): 州欄位正規化：DB 中 696 筆全名（California/New York 等）統一轉為縮寫，nan 清為 NULL；州下拉選單過濾 nan
+  v16 (2026-07-03): 合併備用名單 540 筆（有電話/網站、無email），總計 7,140 筆
+  v16 (2026-07-01): scraper batch 6~10 完成，累計 email +554 / contact +425
+  v20 (2026-07-30): 新增自動從流程A（klub-lead-scheduler）同步 leads.db，不用再手動
+                   /upload-db。使用者發現看板數字「都沒有動」，查證是這個 dashboard
+                   讀本機獨立一份 leads.db、跟流程A/流程B 完全不同步（美國流程三個
+                   DB 互不同步的老問題）。新增背景排程執行緒，每小時呼叫流程A 的
+                   /download-db 抓最新資料，原子性覆蓋本機 leads.db（先存暫存檔
+                   再 move，避免覆蓋到一半被讀到壞檔）。沿用既有 /upload-db 手動
+                   上傳當備援，不衝突。需要設定 SCHEDULER_DB_PASSWORD 環境變數，
+                   沒設定就跳過（不報錯，維持原本純手動同步的行為）。
+"""
 import sqlite3
 import os
 import sys
 import csv
 import io
 import traceback
+import shutil
+import tempfile
+import threading
+import time
+import logging
+import schedule
+import requests
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+log = logging.getLogger(__name__)
 
 try:
     from flask import Flask, render_template_string, request, Response
@@ -21,6 +64,42 @@ except Exception as _e:
         _f.write("=== APP INIT ERROR ===\n")
         traceback.print_exc(file=_f)
     raise
+
+# v20：自動從流程A（klub-lead-scheduler）同步 leads.db，取代純手動 /upload-db
+SCHEDULER_DB_URL = os.environ.get("SCHEDULER_DB_URL", "https://klub-lead-scheduler.zeabur.app/download-db")
+SCHEDULER_DB_PASSWORD = os.environ.get("SCHEDULER_DB_PASSWORD", "")
+
+def _refresh_from_scheduler():
+    """每小時從流程A 抓最新 leads.db，原子性覆蓋本機檔案（先存暫存檔再 move，
+    避免覆蓋到一半時被讀到壞檔）。SCHEDULER_DB_PASSWORD 沒設定就跳過，不報錯——
+    維持原本純手動 /upload-db 同步的行為，不強制依賴這個新機制。"""
+    if not SCHEDULER_DB_PASSWORD:
+        log.info('[refresh] SCHEDULER_DB_PASSWORD 未設定，跳過自動同步')
+        return
+    try:
+        r = requests.get(SCHEDULER_DB_URL, params={'password': SCHEDULER_DB_PASSWORD}, timeout=60)
+        r.raise_for_status()
+        tmp = tempfile.mktemp(suffix=".db")
+        with open(tmp, 'wb') as f:
+            f.write(r.content)
+        # 驗證是有效的 SQLite DB 且有 leads 表，避免壞檔覆蓋掉還能用的舊資料
+        conn = sqlite3.connect(tmp)
+        count = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
+        conn.close()
+        shutil.move(tmp, DB_PATH)
+        log.info(f'[refresh] 同步完成，{count} 筆')
+    except Exception as e:
+        log.error(f'[refresh] 同步失敗: {type(e).__name__}: {e}')
+
+def _run_scheduler():
+    schedule.every().hour.do(_refresh_from_scheduler)
+    _refresh_from_scheduler()  # 啟動時先跑一次，不用等一小時
+    log.info('[refresh] 背景排程已啟動，每小時自動從流程A 同步')
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
+
+threading.Thread(target=_run_scheduler, daemon=True).start()
 
 HTML = """
 <!DOCTYPE html>
@@ -102,6 +181,10 @@ a.link:hover { text-decoration: underline; }
     <a href="https://frastracker.zeabur.app/sending" target="_blank"
        style="background:#27ae60;color:#fff;padding:7px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap;">
       📬 發信狀況
+    </a>
+    <a href="https://klub-lead-scheduler.zeabur.app/" target="_blank"
+       style="background:#e67e22;color:#fff;padding:7px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap;">
+      📅 排程管理
     </a>
     <span style="color:#aaa;font-size:12px;">共 {{ total_all }} 筆資料</span>
   </div>
@@ -303,13 +386,24 @@ def index():
     with_contact = query_one("SELECT COUNT(*) FROM leads WHERE contact IS NOT NULL AND contact != ''")
     vip_count    = query_one("SELECT COUNT(*) FROM leads WHERE tier = 'VIP'")
     general_count= query_one("SELECT COUNT(*) FROM leads WHERE tier = 'GENERAL'")
-    city_count   = query_one("SELECT COUNT(DISTINCT city) FROM leads")
-    industry_count = query_one("SELECT COUNT(DISTINCT industry) FROM leads")
+    city_count   = query_one("SELECT COUNT(DISTINCT city) FROM leads WHERE city IS NOT NULL AND city != 'nan'")
+    # 固定 8 種標準產業別（備用名單帶入的雜項不列入下拉）
+    STANDARD_INDUSTRIES = [
+        "Beverage Equipment Maintenance and Service",
+        "Beverage Material Store",
+        "Bubble Tea Chain Store",
+        "Coffee Cafe Chain Store",
+        "Food Service Equipment Dealer",
+        "Tea House Chain Store",
+        "Tea Trading Company",
+        "Tea Wholesaler",
+    ]
+    industry_count = len(STANDARD_INDUSTRIES)
 
     # 下拉選單選項
-    industries = [r[0] for r in query("SELECT DISTINCT industry FROM leads WHERE industry IS NOT NULL ORDER BY industry")]
-    cities     = [r[0] for r in query("SELECT DISTINCT city FROM leads WHERE city IS NOT NULL ORDER BY city")]
-    states     = [r[0] for r in query("SELECT DISTINCT state FROM leads WHERE state IS NOT NULL ORDER BY state")]
+    industries = STANDARD_INDUSTRIES
+    cities     = [r[0] for r in query("SELECT DISTINCT city FROM leads WHERE city IS NOT NULL AND city != 'nan' ORDER BY city")]
+    states     = [r[0] for r in query("SELECT DISTINCT state FROM leads WHERE state IS NOT NULL AND state != 'nan' ORDER BY state")]
 
     # 查詢條件
     where, params = build_where(industry, city, state, tier, has_email)
